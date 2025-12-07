@@ -116,7 +116,7 @@ export default function LiveDashboard() {
       formData.append('session_id', sessionId)
       formData.append('is_initial', isInitial)
       
-      const response = await fetch('http://localhost:8000/api/detect-participants', {
+      const response = await fetch(`${getApiBaseUrl()}/api/detect-participants`, {
         method: 'POST',
         body: formData
       })
@@ -154,7 +154,7 @@ export default function LiveDashboard() {
     wsInitializedRef.current = true
     
     // Fetch video URL
-    setVideoUrl(`http://localhost:8000/api/video/${sessionId}`)
+    setVideoUrl(`${getApiBaseUrl()}/api/video/${sessionId}`)
 
     // Initialize WebSocket
     const ws = new WebSocketService(sessionId)
