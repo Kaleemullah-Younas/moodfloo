@@ -41,7 +41,16 @@ export default function Analysis() {
       toast.success('Analysis complete!')
     } catch (error) {
       console.error('Analysis error:', error)
-      toast.error('Analysis failed')
+      
+      // Handle session not found error
+      if (error.response?.status === 404 || error.message?.includes('Session not found')) {
+        toast.error('Session expired or not found. Please upload a new file.')
+        setTimeout(() => {
+          navigate('/')
+        }, 2000)
+      } else {
+        toast.error(error.response?.data?.detail || 'Analysis failed')
+      }
     } finally {
       setAnalyzing(false)
       setLoading(false)

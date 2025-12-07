@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiService } from '../services/api'
 import toast from 'react-hot-toast'
@@ -9,6 +9,13 @@ export default function Upload({ onUploadComplete }) {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const navigate = useNavigate()
+
+  // Reset state when component mounts (ensures fresh upload)
+  useEffect(() => {
+    setFile(null)
+    setUploading(false)
+    setUploadProgress(0)
+  }, [])
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0]

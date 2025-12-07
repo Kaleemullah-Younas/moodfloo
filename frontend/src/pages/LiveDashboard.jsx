@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { WebSocketService, apiService } from '../services/api'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { WebSocketService, apiService, getApiBaseUrl } from '../services/api'
 import MetricCard from '../components/MetricCard'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { getEmotionColor, formatTime, getTeamStatusMessage } from '../utils/helpers'
@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 
 export default function LiveDashboard() {
   const { sessionId } = useParams()
+  const navigate = useNavigate()
   const [wsService, setWsService] = useState(null)
   const [connected, setConnected] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -94,46 +95,10 @@ export default function LiveDashboard() {
     })
   }
 
-  // Function to capture video frame and detect participants
+  // Function to capture video frame and detect participants (DISABLED - using random data)
   const captureVideoFrame = async (isInitial = false) => {
-    const video = videoRef.current
-    if (!video || video.paused || video.ended) return
-
-    try {
-      // Create canvas to capture frame
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      
-      // Convert to blob
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8))
-      
-      // Send to backend for participant detection
-      const formData = new FormData()
-      formData.append('frame', blob, 'frame.jpg')
-      formData.append('session_id', sessionId)
-      formData.append('is_initial', isInitial)
-      
-      const response = await fetch(`${getApiBaseUrl()}/api/detect-participants`, {
-        method: 'POST',
-        body: formData
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        if (isInitial) {
-          setParticipantCount(data.total_participants || 0)
-          console.log('✅ Initial participant count:', data.total_participants)
-        }
-        setCamerasOn(data.cameras_on || 0)
-        setCamerasOff(data.cameras_off || 0)
-        console.log('📸 Frame analyzed - Cameras On:', data.cameras_on, 'Cameras Off:', data.cameras_off)
-      }
-    } catch (error) {
-      console.error('Error capturing video frame:', error)
-    }
+    // Frame analysis disabled - using random participant data generation instead
+    return
   }
 
   useEffect(() => {
@@ -185,16 +150,8 @@ export default function LiveDashboard() {
     ws.on('update', (data) => {
       setRealtimeData(data.data)
       
-      // Update participant counts if available in data
-      if (data.data.participant_count !== undefined) {
-        setParticipantCount(data.data.participant_count)
-      }
-      if (data.data.cameras_on !== undefined) {
-        setCamerasOn(data.data.cameras_on)
-      }
-      if (data.data.cameras_off !== undefined) {
-        setCamerasOff(data.data.cameras_off)
-      }
+      // Note: Participant counts are handled by random data generation
+      // Not updating from WebSocket to avoid conflicts
       
       // Accumulate timeline data
       setTimeline(prev => {
@@ -212,7 +169,16 @@ export default function LiveDashboard() {
 
     ws.on('error', (data) => {
       console.error('WebSocket error:', data.message)
-      toast.error(data.message)
+      
+      // Handle session not found error
+      if (data.message && (data.message.includes('Session not found') || data.message.includes('expired'))) {
+        toast.error('Session expired or not found. Please upload a new file.')
+        setTimeout(() => {
+          navigate('/')
+        }, 2000)
+      } else {
+        toast.error(data.message)
+      }
     })
 
     // Cleanup
@@ -237,23 +203,11 @@ export default function LiveDashboard() {
     const handlePlay = () => {
       setIsPlaying(true)
       
-      // Capture initial frame after 10-20 seconds of video start
+      // Generate initial random participant data when video starts
       if (!initialFrameCapturedRef.current) {
-        setTimeout(() => {
-          if (!initialFrameCapturedRef.current && video.currentTime >= 10) {
-            captureVideoFrame(true)
-            initialFrameCapturedRef.current = true
-          }
-        }, 10000) // 10 seconds
+        generateRandomParticipantData()
+        initialFrameCapturedRef.current = true
       }
-      
-      // Start periodic frame capture every 15 seconds
-      if (frameIntervalRef.current) {
-        clearInterval(frameIntervalRef.current)
-      }
-      frameIntervalRef.current = setInterval(() => {
-        captureVideoFrame(false)
-      }, 15000) // 15 seconds
     }
     
     const handlePause = () => {
