@@ -32,7 +32,7 @@ export default function LiveDashboard() {
   // Cleanup when component unmounts
   useEffect(() => {
     return () => {
-      console.log('🧹 Cleaning up LiveDashboard, closing WebSocket')
+      console.log('🧹 Cleaning up LiveDashboard on unmount')
       if (wsService) {
         wsService.close()
       }
@@ -47,7 +47,7 @@ export default function LiveDashboard() {
       currentSessionRef.current = null
       initialFrameCapturedRef.current = false
     }
-  }, [wsService])
+  }, [])
 
   // Random participant data updates: start after 15s, then every 1min when video is playing
   useEffect(() => {
