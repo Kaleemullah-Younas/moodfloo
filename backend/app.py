@@ -58,8 +58,54 @@ app.add_middleware(LargeUploadMiddleware)
 analyzer_service = AnalyzerService()
 streaming_service = RealtimeStreamingService()
 
-# Active sessions storage
-active_sessions: Dict[str, Dict] = {}
+# Persistent session storage
+SESSIONS_FILE = Path("/tmp/moodflo_sessions.json")
+
+def load_sessions() -> Dict[str, Dict]:
+    """Load sessions from persistent storage"""
+    if SESSIONS_FILE.exists():
+        try:
+            with open(SESSIONS_FILE, 'r') as f:
+                sessions = json.load(f)
+                # Validate that session files still exist
+                valid_sessions = {}
+                for sid, data in sessions.items():
+                    file_path = data.get("file_path")
+                    if file_path and Path(file_path).exists():
+                        # Only keep JSON-serializable data
+                        valid_sessions[sid] = {
+                            "file_path": data["file_path"],
+                            "filename": data["filename"],
+                            "status": data.get("status", "uploaded"),
+                            "analysis_complete": data.get("analysis_complete", False)
+                        }
+                return valid_sessions
+        except Exception as e:
+            print(f"Failed to load sessions: {e}")
+            return {}
+    return {}
+
+def save_sessions(sessions: Dict[str, Dict]):
+    """Save sessions to persistent storage (JSON-serializable data only)"""
+    try:
+        SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Only save JSON-serializable fields
+        serializable_sessions = {}
+        for sid, data in sessions.items():
+            serializable_sessions[sid] = {
+                "file_path": data.get("file_path"),
+                "filename": data.get("filename"),
+                "status": data.get("status", "uploaded"),
+                "analysis_complete": data.get("analysis_complete", False)
+            }
+        with open(SESSIONS_FILE, 'w') as f:
+            json.dump(serializable_sessions, f)
+    except Exception as e:
+        print(f"Failed to save sessions: {e}")
+
+# Load sessions on startup
+active_sessions: Dict[str, Dict] = load_sessions()
+print(f"📂 Loaded {len(active_sessions)} existing sessions from persistent storage")
 
 
 @app.get("/")
@@ -113,6 +159,7 @@ async def upload_file(file: UploadFile = File(...)):
         "status": "uploaded",
         "analysis_complete": False
     }
+    save_sessions(active_sessions)  # Persist to disk
     
     return {
         "session_id": session_id,
@@ -277,6 +324,9 @@ async def websocket_stream(websocket: WebSocket, session_id: str):
             # Pre-process file for streaming
             stream_data = await streaming_service.initialize_stream(file_path)
             session["stream_data"] = stream_data
+            active_sessions[session_id] = session
+            # Note: stream_data is not persisted (not JSON serializable)
+            # It will be regenerated if container restarts
             print(f"💾 Cached stream_data for session {session_id}")
             
             # Don't run duplicate full analysis - progressive streaming already processes everything
