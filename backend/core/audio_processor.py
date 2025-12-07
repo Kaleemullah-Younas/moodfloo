@@ -127,11 +127,14 @@ class AudioProcessor:
         
         # Segment into frames
         frames, timestamps = self.segment_audio(audio)
+        duration = len(audio) / sr
+        
+        # Clear large audio array from memory immediately
+        del audio
         
         return {
             'frames': frames,
             'timestamps': timestamps,
-            'duration': len(audio) / sr,
-            'sample_rate': sr,
-            'full_audio': audio
+            'duration': duration,
+            'sample_rate': sr
         }

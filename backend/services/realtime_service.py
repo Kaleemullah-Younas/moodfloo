@@ -96,7 +96,7 @@ class RealtimeStreamingService:
         """
         print("🎬 Initializing real-time stream...")
         
-        # Process audio
+        # Process audio (memory-optimized)
         audio_data = self.audio_processor.process_file(file_path)
         
         frames = audio_data['frames']
@@ -104,14 +104,25 @@ class RealtimeStreamingService:
         sample_rate = audio_data['sample_rate']
         duration = audio_data['duration']
         
+        # CRITICAL: Limit frames to reduce memory on Railway (max 30 seconds initially)
+        max_initial_frames = int((30 / duration) * len(frames)) if duration > 30 else len(frames)
+        max_initial_frames = min(max_initial_frames, len(frames))
+        
+        if len(frames) > max_initial_frames:
+            print(f"⚠️ Memory optimization: Processing first {max_initial_frames} frames (~30s) out of {len(frames)}")
+            frames = frames[:max_initial_frames]
+            timestamps = timestamps[:max_initial_frames]
+            duration = min(duration, 30)
+        
         # Estimate participants from audio analysis
         participant_count = self.estimate_participants_from_audio(frames, sample_rate)
         
         total_frames = len(frames)
         
-        # Calculate initial batch size (approximately initial_batch_duration seconds worth of frames)
+        # Calculate initial batch size (smaller to reduce memory spikes)
+        initial_batch_duration = min(initial_batch_duration, 3.0)  # Max 3 seconds initially
         initial_batch_size = int((initial_batch_duration / duration) * total_frames)
-        initial_batch_size = max(1, min(initial_batch_size, total_frames))
+        initial_batch_size = max(1, min(initial_batch_size, total_frames, 50))  # Cap at 50 frames
         
         print(f"📊 Total: {total_frames} frames ({duration:.1f}s)")
         print(f"🚀 Processing initial batch: {initial_batch_size} frames (~{initial_batch_duration:.1f}s)")

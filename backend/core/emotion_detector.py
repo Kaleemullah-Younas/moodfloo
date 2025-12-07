@@ -234,24 +234,24 @@ class EmotionDetector:
     ) -> List[Dict[str, float]]:
         """
         Analyze multiple frames
-        Uses ProcessPoolExecutor for true parallel processing
+        MEMORY OPTIMIZATION: Use ThreadPoolExecutor instead of ProcessPoolExecutor for Railway's 512MB limit
         """
-        if not use_parallel or len(frames) < settings.BATCH_SIZE:
-            # Sequential processing for small batches
+        # CRITICAL: Always use sequential processing on Railway to avoid memory spikes
+        if len(frames) <= 10:
+            # Very small batches - sequential
             return [self.analyze_frame(frame, sample_rate) for frame in frames]
         
-        # Parallel processing with ProcessPoolExecutor
-        print(f"🚀 Starting parallel emotion detection for {len(frames)} frames...")
+        # Use ThreadPoolExecutor (shares memory) instead of ProcessPoolExecutor (duplicates memory)
+        print(f"🚀 Starting threaded emotion detection for {len(frames)} frames...")
         results = [None] * len(frames)
-        lib_path = self._get_vokaturi_lib_path()
         
-        # Prepare frame data with index, frame, sample_rate, lib_path
-        frame_data = [(frame, sample_rate, lib_path) for frame in frames]
+        # Use ThreadPoolExecutor with limited workers to control memory
+        max_workers = min(2, settings.PARALLEL_WORKERS)  # Max 2 threads on Railway
         
-        with ProcessPoolExecutor(max_workers=settings.PARALLEL_WORKERS) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {
-                executor.submit(_analyze_frame_worker, data): idx
-                for idx, data in enumerate(frame_data)
+                executor.submit(self.analyze_frame, frame, sample_rate): idx
+                for idx, frame in enumerate(frames)
             }
             
             completed = 0
@@ -260,11 +260,11 @@ class EmotionDetector:
                 results[idx] = future.result()
                 completed += 1
                 
-                # Progress logging every 10%
-                if completed % max(1, len(frames) // 10) == 0:
+                # Progress logging every 20%
+                if completed % max(1, len(frames) // 5) == 0:
                     print(f"  Progress: {completed}/{len(frames)} frames ({(completed/len(frames)*100):.0f}%)")
         
-        print(f"✅ Parallel emotion detection complete!")
+        print(f"✅ Threaded emotion detection complete!")
         return results
     
     def analyze_streaming(
