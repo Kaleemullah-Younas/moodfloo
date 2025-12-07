@@ -29,7 +29,7 @@ export default function LiveDashboard() {
   const frameIntervalRef = useRef(null)
   const initialFrameCapturedRef = useRef(false)
 
-  // Cleanup when session changes
+  // Cleanup when component unmounts
   useEffect(() => {
     return () => {
       console.log('🧹 Cleaning up LiveDashboard, closing WebSocket')
@@ -42,11 +42,12 @@ export default function LiveDashboard() {
       if (participantUpdateInterval.current) {
         clearInterval(participantUpdateInterval.current)
       }
+      // Reset refs to allow fresh initialization
       wsInitializedRef.current = false
       currentSessionRef.current = null
       initialFrameCapturedRef.current = false
     }
-  }, [])
+  }, [wsService])
 
   // Random participant data updates: start after 15s, then every 1min when video is playing
   useEffect(() => {
@@ -111,11 +112,15 @@ export default function LiveDashboard() {
       wsInitializedRef.current = false
       setConnected(false)
       setWsService(null)
+      setTimeline([])
+      setRealtimeData(null)
+      setVideoEnded(false)
+      setIsPlaying(false)
     }
     currentSessionRef.current = sessionId
     
-    // Prevent multiple connections
-    if (wsInitializedRef.current) return
+    // Prevent multiple connections for the SAME session
+    if (wsInitializedRef.current && currentSessionRef.current === sessionId) return
     wsInitializedRef.current = true
     
     // Fetch video URL
