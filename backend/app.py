@@ -58,32 +58,46 @@ app.add_middleware(LargeUploadMiddleware)
 analyzer_service = AnalyzerService()
 streaming_service = RealtimeStreamingService()
 
-# Persistent session storage
-SESSIONS_FILE = Path("/tmp/moodflo_sessions.json")
+# Persistent session storage - use /app for Railway persistence
+DATA_DIR = Path("/app/data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+SESSIONS_FILE = DATA_DIR / "sessions.json"
+
+# CRITICAL FIX: Single session mode for Railway free tier
+# Railway free tier has no persistent storage, so we clear old sessions
+# and maintain only the current active session
+SINGLE_SESSION_MODE = True
 
 def load_sessions() -> Dict[str, Dict]:
     """Load sessions from persistent storage"""
-    if SESSIONS_FILE.exists():
-        try:
-            with open(SESSIONS_FILE, 'r') as f:
-                sessions = json.load(f)
-                # Validate that session files still exist
-                valid_sessions = {}
-                for sid, data in sessions.items():
-                    file_path = data.get("file_path")
-                    if file_path and Path(file_path).exists():
-                        # Only keep JSON-serializable data
-                        valid_sessions[sid] = {
-                            "file_path": data["file_path"],
-                            "filename": data["filename"],
-                            "status": data.get("status", "uploaded"),
-                            "analysis_complete": data.get("analysis_complete", False)
-                        }
-                return valid_sessions
-        except Exception as e:
-            print(f"Failed to load sessions: {e}")
-            return {}
-    return {}
+    if not SESSIONS_FILE.exists():
+        return {}
+    
+    try:
+        with open(SESSIONS_FILE, 'r') as f:
+            sessions = json.load(f)
+            
+            # In single-session mode, clear old sessions
+            if SINGLE_SESSION_MODE:
+                print("🔄 Single-session mode: Clearing old sessions")
+                return {}
+            
+            # Validate that session files still exist
+            valid_sessions = {}
+            for sid, data in sessions.items():
+                file_path = data.get("file_path")
+                if file_path and Path(file_path).exists():
+                    # Only keep JSON-serializable data
+                    valid_sessions[sid] = {
+                        "file_path": data["file_path"],
+                        "filename": data["filename"],
+                        "status": data.get("status", "uploaded"),
+                        "analysis_complete": data.get("analysis_complete", False)
+                    }
+            return valid_sessions
+    except Exception as e:
+        print(f"Failed to load sessions: {e}")
+        return {}
 
 def save_sessions(sessions: Dict[str, Dict]):
     """Save sessions to persistent storage (JSON-serializable data only)"""
@@ -141,11 +155,26 @@ async def upload_file(file: UploadFile = File(...)):
     # Create session
     session_id = str(uuid.uuid4())
     
-    # Save file temporarily
-    temp_dir = Path(tempfile.gettempdir()) / "moodflo" / session_id
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    # CRITICAL FIX: In single-session mode, clean up old sessions
+    if SINGLE_SESSION_MODE and len(active_sessions) > 0:
+        print(f"🧹 Cleaning up {len(active_sessions)} old sessions")
+        # Clean up old upload directories
+        for old_sid in list(active_sessions.keys()):
+            old_path = Path(active_sessions[old_sid].get("file_path", ""))
+            if old_path.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(old_path.parent)
+                    print(f"Deleted old upload: {old_path.parent}")
+                except:
+                    pass
+        active_sessions.clear()
     
-    file_path = temp_dir / file.filename
+    # Save file to persistent storage (not /tmp which gets wiped)
+    upload_dir = DATA_DIR / "uploads" / session_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    file_path = upload_dir / file.filename
     
     # Write file
     content = await file.read()
@@ -491,7 +520,9 @@ async def export_pdf(session_id: str):
     pdf_buffer = generator.generate_pdf_report()
     
     # Save to temp file
-    temp_file = Path(tempfile.gettempdir()) / f"moodflo_report_{session_id[:8]}.pdf"
+    report_dir = DATA_DIR / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    temp_file = report_dir / f"moodflo_report_{session_id[:8]}.pdf"
     with open(temp_file, 'wb') as f:
         f.write(pdf_buffer.read())
     
